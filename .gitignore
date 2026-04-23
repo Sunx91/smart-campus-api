@@ -1,0 +1,108 @@
+# ============================================================================
+# Smart Campus API — .gitignore
+# Stack: Java 21 + Maven + JAX-RS (Jersey) + Tomcat 9
+# ============================================================================
+
+# ── Maven build output ─────────────────────────────────────────────────────
+target/
+**/target/
+*.war
+*.jar
+*.ear
+*.class
+*.nar
+dependency-reduced-pom.xml
+release.properties
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+buildNumber.properties
+
+# Maven wrapper — keep the scripts themselves committed if present,
+# ignore only the cached distribution the wrapper downloads at runtime
+.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+
+# ── Java runtime artefacts ─────────────────────────────────────────────────
+*.log
+*.log.*
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# ── IntelliJ IDEA ──────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# ── Eclipse ────────────────────────────────────────────────────────────────
+.project
+.classpath
+.settings/
+.factorypath
+.apt_generated/
+.apt_generated_tests/
+bin/
+
+# ── NetBeans ───────────────────────────────────────────────────────────────
+# Keep nb-configuration.xml (checked in — it holds the JDK platform mapping)
+# but ignore everything else NetBeans generates locally.
+nbproject/private/
+nbproject/*-private.properties
+build/
+dist/
+nbbuild/
+nbdist/
+.nb-gradle/
+
+# ── VS Code ────────────────────────────────────────────────────────────────
+.vscode/
+.vscode-test/
+*.code-workspace
+
+# ── Apache Tomcat / deployment ─────────────────────────────────────────────
+# If a local tomcat is placed inside the repo for any reason
+apache-tomcat-*/
+tomcat/
+work/
+logs/
+catalina.out
+
+# ── macOS ──────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ── Windows ────────────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Linux ──────────────────────────────────────────────────────────────────
+*~
+.fuse_hidden*
+.Trash-*
+
+# ── Local environment / secrets ────────────────────────────────────────────
+.env
+.env.local
+*.env
+*.pem
+*.key
+*.p12
+*.keystore
+secrets/
+
+# ── Coursework-specific: keep docs/, postman.md, README.md committed ───────
+# Ignore ad-hoc scratch files the author may create while filming
+scratch/
+tmp/
+*.tmp
+*.bak
+*.swp
+*.orig
