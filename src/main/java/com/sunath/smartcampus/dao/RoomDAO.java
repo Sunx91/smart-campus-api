@@ -6,9 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * CRUD operations for {@link Room} entities backed by {@link MockDatabase}.
- */
 public class RoomDAO implements GenericDAO<Room> {
 
     private static final RoomDAO INSTANCE = new RoomDAO();
@@ -19,8 +16,6 @@ public class RoomDAO implements GenericDAO<Room> {
 
     private RoomDAO() {
     }
-
-    // ── GenericDAO ─────────────────────────────────────────────────────────────
 
     @Override
     public Room create(Room room) {

@@ -10,19 +10,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-/**
- * In-memory data store for the Smart Campus API.
- *
- * <p>Uses thread-safe {@link ConcurrentHashMap} collections to simulate a
- * database without any external persistence layer.  Readings are stored in a
- * nested map: sensorId → list of SensorReading.
- *
- * <p>Pre-seeded with sample data so that the API is immediately usable when
- * the WAR is first deployed.
- */
 public class MockDatabase {
-
-    // ── Singleton ──────────────────────────────────────────────────────────────
 
     private static final MockDatabase INSTANCE = new MockDatabase();
 
@@ -30,22 +18,17 @@ public class MockDatabase {
         return INSTANCE;
     }
 
-    // ── Storage ────────────────────────────────────────────────────────────────
-
-    private final Map<String, Room>          rooms    = new ConcurrentHashMap<>();
-    private final Map<String, Sensor>        sensors  = new ConcurrentHashMap<>();
-    /** sensorId → ordered list of readings */
+    private final Map<String, Room>   rooms   = new ConcurrentHashMap<>();
+    private final Map<String, Sensor> sensors = new ConcurrentHashMap<>();
     private final Map<String, List<SensorReading>> readings = new ConcurrentHashMap<>();
 
-    // ── Constructor (seed data) ────────────────────────────────────────────────
-
     private MockDatabase() {
-        // ── Rooms ──────────────────────────────────────────────────────────────
+        // Seed rooms
         Room r1 = new Room("room-001", "Lecture Hall A", 120);
         Room r2 = new Room("room-002", "Server Room B", 10);
         Room r3 = new Room("room-003", "Library Reading Area", 60);
 
-        // ── Sensors ────────────────────────────────────────────────────────────
+        // Seed sensors (one in MAINTENANCE so the 403 path is demoable)
         Sensor s1 = new Sensor("sensor-001", "TEMPERATURE", "ACTIVE", 22.5, "room-001");
         Sensor s2 = new Sensor("sensor-002", "HUMIDITY",    "ACTIVE", 55.0, "room-001");
         Sensor s3 = new Sensor("sensor-003", "TEMPERATURE", "MAINTENANCE", 19.0, "room-002");
@@ -63,7 +46,7 @@ public class MockDatabase {
         sensors.put(s2.getId(), s2);
         sensors.put(s3.getId(), s3);
 
-        // ── Readings ───────────────────────────────────────────────────────────
+        // Seed readings for sensor-001 only
         List<SensorReading> r1Readings = new CopyOnWriteArrayList<>();
         r1Readings.add(new SensorReading("reading-001", System.currentTimeMillis() - 60_000, 21.8));
         r1Readings.add(new SensorReading("reading-002", System.currentTimeMillis() - 30_000, 22.1));
@@ -73,8 +56,6 @@ public class MockDatabase {
         readings.put("sensor-003", new CopyOnWriteArrayList<>());
     }
 
-    // ── Room accessors ─────────────────────────────────────────────────────────
-
     public Map<String, Room> getRooms() {
         return rooms;
     }
@@ -82,8 +63,6 @@ public class MockDatabase {
     public Optional<Room> getRoom(String id) {
         return Optional.ofNullable(rooms.get(id));
     }
-
-    // ── Sensor accessors ───────────────────────────────────────────────────────
 
     public Map<String, Sensor> getSensors() {
         return sensors;
@@ -93,11 +72,7 @@ public class MockDatabase {
         return Optional.ofNullable(sensors.get(id));
     }
 
-    // ── SensorReading accessors ────────────────────────────────────────────────
-
-    /**
-     * Returns the reading list for a sensor, creating an empty list on first access.
-     */
+    // Creates an empty reading list on first access for a new sensor
     public List<SensorReading> getReadingsForSensor(String sensorId) {
         return readings.computeIfAbsent(sensorId, k -> new CopyOnWriteArrayList<>());
     }

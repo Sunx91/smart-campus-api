@@ -7,14 +7,11 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.ext.ExceptionMapper;
 import javax.ws.rs.ext.Provider;
 
-/**
- * Maps {@link RoomNotEmptyException} → HTTP 409 Conflict.
- */
 @Provider
 public class RoomNotEmptyExceptionMapper implements ExceptionMapper<RoomNotEmptyException> {
 
     private static final String DOCS =
-            "https://smart-campus-api.docs/errors/room-not-empty";
+            "https://github.com/Sunx91/smart-campus-api";
 
     @Override
     public Response toResponse(RoomNotEmptyException ex) {

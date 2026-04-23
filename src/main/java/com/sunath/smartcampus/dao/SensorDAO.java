@@ -7,9 +7,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/**
- * CRUD operations for {@link Sensor} entities backed by {@link MockDatabase}.
- */
 public class SensorDAO implements GenericDAO<Sensor> {
 
     private static final SensorDAO INSTANCE = new SensorDAO();
@@ -20,8 +17,6 @@ public class SensorDAO implements GenericDAO<Sensor> {
 
     private SensorDAO() {
     }
-
-    // ── GenericDAO ─────────────────────────────────────────────────────────────
 
     @Override
     public Sensor create(Sensor sensor) {
@@ -53,15 +48,7 @@ public class SensorDAO implements GenericDAO<Sensor> {
         return MockDatabase.getInstance().getSensors().remove(id) != null;
     }
 
-    // ── Extra finders ──────────────────────────────────────────────────────────
-
-    /**
-     * Returns all sensors whose {@code type} field matches the supplied value
-     * (case-insensitive).
-     *
-     * @param type sensor type string, e.g. "TEMPERATURE"
-     * @return filtered list; empty list if none match
-     */
+    // Case-insensitive filter used by GET /sensors?type=
     public List<Sensor> findByType(String type) {
         return MockDatabase.getInstance().getSensors().values().stream()
                 .filter(s -> s.getType().equalsIgnoreCase(type))

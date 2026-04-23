@@ -7,19 +7,12 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.ext.ExceptionMapper;
 import javax.ws.rs.ext.Provider;
 
-/**
- * Maps {@link SensorMaintenanceException} → HTTP <b>403 Forbidden</b>.
- *
- * <p>403 communicates "the server understood the request but refuses to
- * authorise it based on resource state"; 503 would incorrectly imply the
- * whole server is unavailable.
- */
 @Provider
 public class SensorMaintenanceExceptionMapper
         implements ExceptionMapper<SensorMaintenanceException> {
 
     private static final String DOCS =
-            "https://smart-campus-api.docs/errors/sensor-maintenance";
+            "https://github.com/Sunx91/smart-campus-api";
 
     @Override
     public Response toResponse(SensorMaintenanceException ex) {

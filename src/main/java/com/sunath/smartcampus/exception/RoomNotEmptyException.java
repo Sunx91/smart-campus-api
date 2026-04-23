@@ -1,9 +1,5 @@
 package com.sunath.smartcampus.exception;
 
-/**
- * Thrown when a client attempts to delete a room that still has sensors linked to it.
- * Mapped to HTTP 409 Conflict by {@link RoomNotEmptyExceptionMapper}.
- */
 public class RoomNotEmptyException extends RuntimeException {
 
     private final String roomId;

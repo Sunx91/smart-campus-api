@@ -7,16 +7,12 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.ext.ExceptionMapper;
 import javax.ws.rs.ext.Provider;
 
-/**
- * Maps {@link ResourceNotFoundException} → HTTP <b>404 Not Found</b> with the
- * canonical {@code ErrorMessage} JSON payload.
- */
 @Provider
 public class ResourceNotFoundExceptionMapper
         implements ExceptionMapper<ResourceNotFoundException> {
 
     private static final String DOCS =
-            "https://smart-campus-api.docs/errors/not-found";
+            "https://github.com/Sunx91/smart-campus-api";
 
     @Override
     public Response toResponse(ResourceNotFoundException ex) {

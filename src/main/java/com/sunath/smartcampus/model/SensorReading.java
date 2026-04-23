@@ -1,15 +1,11 @@
 package com.sunath.smartcampus.model;
 
-/**
- * A time-stamped value captured by a sensor.
- */
 public class SensorReading implements BaseModel {
 
     private String id;
-    private long timestamp;   // epoch milliseconds
+    private long timestamp;
     private double value;
 
-    /** Required by Jackson for deserialization. */
     public SensorReading() {
     }
 
@@ -19,14 +15,10 @@ public class SensorReading implements BaseModel {
         this.value = value;
     }
 
-    // ── BaseModel ──────────────────────────────────────────────────────────────
-
     @Override
     public String getId() {
         return id;
     }
-
-    // ── Getters & Setters ──────────────────────────────────────────────────────
 
     public void setId(String id) {
         this.id = id;

@@ -6,24 +6,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * CRUD operations for {@link SensorReading} entities stored inside
- * {@link MockDatabase} under a parent sensor id.
- */
 public class SensorReadingDAO implements GenericDAO<SensorReading> {
 
     private final String sensorId;
 
-    /**
-     * Creates a DAO scoped to the given sensor.
-     *
-     * @param sensorId owning sensor identifier
-     */
     public SensorReadingDAO(String sensorId) {
         this.sensorId = sensorId;
     }
-
-    // ── GenericDAO ─────────────────────────────────────────────────────────────
 
     @Override
     public SensorReading create(SensorReading reading) {

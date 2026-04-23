@@ -3,9 +3,6 @@ package com.sunath.smartcampus.model;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Represents a physical room on the smart campus.
- */
 public class Room implements BaseModel {
 
     private String id;
@@ -13,7 +10,6 @@ public class Room implements BaseModel {
     private int capacity;
     private List<String> sensorIds;
 
-    /** Required by Jackson for deserialization. */
     public Room() {
         this.sensorIds = new ArrayList<>();
     }
@@ -25,14 +21,10 @@ public class Room implements BaseModel {
         this.sensorIds = new ArrayList<>();
     }
 
-    // ── BaseModel ──────────────────────────────────────────────────────────────
-
     @Override
     public String getId() {
         return id;
     }
-
-    // ── Getters & Setters ──────────────────────────────────────────────────────
 
     public void setId(String id) {
         this.id = id;

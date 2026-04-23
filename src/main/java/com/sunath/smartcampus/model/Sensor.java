@@ -1,8 +1,5 @@
 package com.sunath.smartcampus.model;
 
-/**
- * Represents an IoT sensor attached to a room on the smart campus.
- */
 public class Sensor implements BaseModel {
 
     private String id;
@@ -11,7 +8,6 @@ public class Sensor implements BaseModel {
     private double currentValue;
     private String roomId;
 
-    /** Required by Jackson for deserialization. */
     public Sensor() {
     }
 
@@ -23,14 +19,10 @@ public class Sensor implements BaseModel {
         this.roomId = roomId;
     }
 
-    // ── BaseModel ──────────────────────────────────────────────────────────────
-
     @Override
     public String getId() {
         return id;
     }
-
-    // ── Getters & Setters ──────────────────────────────────────────────────────
 
     public void setId(String id) {
         this.id = id;

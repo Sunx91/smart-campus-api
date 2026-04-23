@@ -15,36 +15,29 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <failOnMissingWebXml>false</failOnMissingWebXml>
-        <!-- Jersey 2.x uses javax.* namespace — correct for Tomcat 9 / Jakarta EE 8 -->
         <jersey.version>2.34</jersey.version>
     </properties>
 
     <dependencies>
 
-        <!-- ============================================================
-             Jersey JAX-RS runtime (includes javax.ws.rs-api 2.1.1)
-             ============================================================ -->
         <dependency>
             <groupId>org.glassfish.jersey.containers</groupId>
             <artifactId>jersey-container-servlet</artifactId>
             <version>${jersey.version}</version>
         </dependency>
 
-        <!-- HK2 Dependency Injection (required by Jersey) -->
         <dependency>
             <groupId>org.glassfish.jersey.inject</groupId>
             <artifactId>jersey-hk2</artifactId>
             <version>${jersey.version}</version>
         </dependency>
 
-        <!-- JSON support via Jackson -->
         <dependency>
             <groupId>org.glassfish.jersey.media</groupId>
             <artifactId>jersey-media-json-jackson</artifactId>
             <version>${jersey.version}</version>
         </dependency>
 
-        <!-- Servlet API (provided by Tomcat 9) -->
         <dependency>
             <groupId>javax.servlet</groupId>
             <artifactId>javax.servlet-api</artifactId>
@@ -57,7 +50,6 @@
     <build>
         <plugins>
 
-            <!-- Compiler: 3.13.0 supports JDK 21 without reflection warnings -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -68,7 +60,6 @@
                 </configuration>
             </plugin>
 
-            <!-- WAR plugin: 3.4.0+ required for JDK 17+ -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-war-plugin</artifactId>
