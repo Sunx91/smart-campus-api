@@ -1,213 +1,53 @@
-# Smart Campus API
+# Smart Campus Sensor & Room Management API
 
-**Module:** 5COSC022W — Client / Server Architecture
-**Developer:** Sunath Sandul
-**Stack:** Java EE 8 (`javax.*`), JAX-RS (Jersey 2.34), Apache Tomcat 9, JDK 21
-**Architecture:** Generic DAO Pattern · `MockDatabase` (`ConcurrentHashMap`) · Sub-Resource Locators · HATEOAS Discovery · Custom `ExceptionMapper`s
-**Packaging:** `war` — deployable to any Servlet 4.0 container
+**Module:** 5COSC022W - Client-Server Architectures
 
----
+**Coursework:** Smart Campus REST API using JAX-RS
 
-## Table of Contents
+**Student Name:** Sunath Sandul Jayalath
 
-1. [Overview & Deployment](#1-overview--deployment)
-2. [Sample `curl` Commands](#2-sample-curl-commands)
-3. [Conceptual Report — Theory Questions](#3-conceptual-report--theory-questions)
+**Student ID:** 20240646 / w2120070
 
----
+# API Overview
+This project implements a versioned Smart Campus REST API using Java, JAX-RS (Jersey), Maven, Apache Tomcat, and in-memory collections (`ConcurrentHashMap`, `ArrayList`, `CopyOnWriteArrayList`) only. The API models a campus monitoring system where rooms can be created, listed, retrieved, and safely removed, while sensors are assigned to rooms and can record historical readings.
 
-## 1. Overview & Deployment
+The API follows a resource-oriented design:
+- `GET /api/v1` is a discovery endpoint that returns API metadata, version information, administrative contact details, and links to the main resource collections.
+- `/api/v1/rooms` manages campus rooms. Clients can create rooms, list all rooms, fetch a specific room by ID, and delete a room only when it has no sensors assigned.
+- `/api/v1/sensors` manages sensors linked to existing rooms. Clients can create sensors, list all sensors, fetch a sensor by ID, and filter sensors by type using a query parameter such as `?type=CO2`.
+- `/api/v1/sensors/{sensorId}/readings` is a nested sub-resource for sensor reading history. Clients can fetch previous readings or append a new reading for a sensor. When a new reading is added, the parent sensor's `currentValue` is updated.
 
-### 1.1 Project Overview
+The implementation uses JSON request and response bodies, meaningful HTTP status codes (201, 204, 400, 403, 404, 409, 422, 500), custom exception mappers for consistent error responses, and a JAX-RS logging filter for request and response logging.
 
-The **Smart Campus API** is a RESTful Web Service that digitises the operational
-back-end of a modern university estate. It exposes three first-class domain
-resources — **`Rooms`**, **`Sensors`**, and **`SensorReadings`** — through a
-single, self-describing JAX-RS application mounted at `/api/v1`. Consumers
-include facilities dashboards, IoT gateways pushing environmental telemetry,
-and lecturers querying occupancy. The API is designed as an honest **Level 3
-REST** service (per the Richardson Maturity Model): every response is
-hypermedia-friendly, every error is a structured JSON envelope, and every
-state transition is semantically typed with the correct HTTP verb and status
-code.
+Base URL: `http://localhost:8080/smart-campus-api/api/v1`
 
-#### The "No-Database" Constraint
+## Build and Run
+### NetBeans
+1. Install JDK 21, Apache NetBeans, and Apache Tomcat 9.
+2. Open NetBeans and choose `File > Open Project`.
+3. Select the `smart-campus-api` project folder.
+4. Make sure Tomcat 9 is configured in NetBeans under `Tools > Servers`.
+5. Right-click the project and select `Clean and Build`.
+6. Right-click the project and select `Run`.
+7. After deployment, open `http://localhost:8080/smart-campus-api/api/v1`.
 
-The coursework brief **strictly forbids** any form of external persistence —
-no **JDBC**, no **JPA**, no **Hibernate**, no **SQL/NoSQL** engine of any
-kind. Durability is deliberately out of scope; the emphasis is on
-**REST semantics**, **JAX-RS lifecycle correctness**, and **thread-safe
-concurrency**. To meet this, the project implements an in-memory tier:
+### Maven and Tomcat
+1. Install JDK 21, Maven, and Apache Tomcat 9.
+2. Run `mvn clean package`.
+3. Copy `target/smart-campus-api-1.0-SNAPSHOT.war` into the Tomcat `webapps` folder as `smart-campus-api.war`.
+4. Start Tomcat.
+5. Open `http://localhost:8080/smart-campus-api/api/v1`.
 
-- A **singleton `MockDatabase`** holds three thread-safe maps:
-  - `ConcurrentHashMap<String, Room> rooms`
-  - `ConcurrentHashMap<String, Sensor> sensors`
-  - `ConcurrentHashMap<String, List<SensorReading>> readings`
-- `SensorReading` lists are themselves `CopyOnWriteArrayList` instances so that
-  concurrent appends do not corrupt iteration.
-- A **Generic DAO interface** (`GenericDAO<T>`) is implemented by
-  `RoomDAO`, `SensorDAO`, and `SensorReadingDAO` so that the Resource layer
-  never touches the storage map directly. If the coursework ever needed to
-  swap to a real database, only the DAO implementations would change; the
-  Resource and Exception layers stay intact.
-
-Every piece of data is **seed-loaded on first access** to the singleton, so
-the API is instantly usable after deployment without any external setup.
-
----
-
-### 1.2 Deployment Guide
-
-#### 1.2.1 Prerequisites
-
-| Tool | Version | Verification |
-|---|---|---|
-| **JDK** | 21 (LTS) | `java -version` |
-| **Apache Maven** | 3.9+ | `mvn -v` |
-| **Apache Tomcat** | **9.x** *(must be 9 — Tomcat 10+ uses `jakarta.*`)* | Check `RUNNING.txt` inside `$CATALINA_HOME` |
-| **NetBeans** *(optional)* | 21+ with the "Java EE" feature pack | — |
-
-> **Why Tomcat 9 specifically?** Jersey 2.34 (and all its transitive
-> dependencies) binds to the `javax.*` namespace. Tomcat 10 rebased to
-> `jakarta.*` per the Eclipse Foundation's namespace migration — deploying
-> this WAR there would fail at classload time with
-> `ClassNotFoundException: jakarta.servlet.*`. This constraint is deliberate
-> and is a marked item in the rubric.
-
-#### 1.2.2 Command-Line Build
-
-From the project root:
-
+## Sample curl Commands
 ```bash
-# Clean any previous build artefacts and produce a deployable WAR
-mvn clean package
-
-# Resulting artefact
-ls -lh target/smart-campus-api-1.0-SNAPSHOT.war
+curl -i -X GET http://localhost:8080/smart-campus-api/api/v1
+curl -i -X GET http://localhost:8080/smart-campus-api/api/v1/rooms
+curl -i -X POST http://localhost:8080/smart-campus-api/api/v1/rooms -H "Content-Type: application/json" -d "{\"name\":\"Library West\",\"capacity\":120}"
+curl -i -X POST http://localhost:8080/smart-campus-api/api/v1/sensors -H "Content-Type: application/json" -d "{\"type\":\"CO2\",\"status\":\"ACTIVE\",\"currentValue\":0,\"roomId\":\"room-001\"}"
+curl -i -X GET "http://localhost:8080/smart-campus-api/api/v1/sensors?type=CO2"
+curl -i -X POST http://localhost:8080/smart-campus-api/api/v1/sensors/sensor-001/readings -H "Content-Type: application/json" -d "{\"value\":445.2}"
+curl -i -X DELETE http://localhost:8080/smart-campus-api/api/v1/rooms/room-003
 ```
-
-A successful build prints `BUILD SUCCESS` and emits
-`target/smart-campus-api-1.0-SNAPSHOT.war` (~5.9 MB). The WAR bundles the
-Jersey runtime, HK2 dependency-injection layer, and Jackson JSON provider so
-no additional libraries need installing on the server.
-
-Deploy to a running Tomcat 9 by dropping the WAR into `$CATALINA_HOME/webapps/`:
-
-```bash
-cp target/smart-campus-api-1.0-SNAPSHOT.war $CATALINA_HOME/webapps/
-$CATALINA_HOME/bin/catalina.sh run
-```
-
-Once Tomcat logs `Deployment of web application archive … has finished`, the
-API is reachable at:
-
-```text
-http://localhost:8080/smart-campus-api-1.0-SNAPSHOT/api/v1/
-```
-
-#### 1.2.3 NetBeans Deployment
-
-1. **Register the Tomcat 9 server once:**
-   *Tools → Servers → Add Server → Apache Tomcat or TomEE* →
-   point the *Server Location* field at your local `$CATALINA_HOME`,
-   then supply a manager username/password (added to
-   `$CATALINA_HOME/conf/tomcat-users.xml`).
-2. **Open the project:**
-   *File → Open Project →* select the `smart-campus-api/` directory.
-   NetBeans auto-detects the Maven `pom.xml` and Java 21 compiler.
-3. **Bind the project to Tomcat:**
-   right-click the project → *Properties → Run → Server:* select the
-   Tomcat 9 instance registered in step 1. Leave the *Context Path* as
-   `/smart-campus-api-1.0-SNAPSHOT` (matches the WAR name).
-4. **Run:** press `F6` or click *Run Project*. NetBeans executes
-   `mvn clean package`, deploys the WAR via the Tomcat Manager API, and
-   opens `http://localhost:8080/smart-campus-api-1.0-SNAPSHOT/` in the
-   default browser. Append `/api/v1/` to reach the discovery endpoint.
-
----
-
-## 2. Sample `curl` Commands
-
-All examples assume the default local deployment URL. For readability, export
-it once per shell session:
-
-```bash
-export BASE=http://localhost:8080/smart-campus-api-1.0-SNAPSHOT/api/v1
-```
-
-### 2.1 Discovery (HATEOAS)
-
-Returns the self-describing JSON document containing `version`, structured
-`contact` info, canonical `documentation` URL, and a `resources` map where
-every entry is an object with `href` / `rel` / `method`.
-
-```bash
-curl -s -H "Accept: application/json" "$BASE/" | jq .
-```
-
-### 2.2 Create Room
-
-Creates a room; response carries **`201 Created`** plus a `Location` header
-pointing at the new resource.
-
-```bash
-curl -i -X POST "$BASE/rooms" \
-  -H "Content-Type: application/json" \
-  -d '{
-        "id":        "LIB-301",
-        "name":      "Library Reading Room",
-        "capacity":  80,
-        "sensorIds": []
-      }'
-```
-
-Observe the `Location: …/rooms/LIB-301` line in the response headers — this
-is the Rubric 2.1 marker line.
-
-### 2.3 Filter Sensors by Type
-
-`@QueryParam`-driven search over the sensor collection. Matching is
-case-insensitive.
-
-```bash
-curl -s "$BASE/sensors?type=CO2" -H "Accept: application/json" | jq .
-```
-
-### 2.4 Register Sensor (Referential Integrity)
-
-POSTing with an unknown `roomId` triggers
-`LinkedResourceNotFoundException` → **422 Unprocessable Entity** (see
-Section 3.5 Q1).
-
-```bash
-curl -i -X POST "$BASE/sensors" \
-  -H "Content-Type: application/json" \
-  -d '{
-        "id":           "CO2-001",
-        "type":         "CO2",
-        "status":       "ACTIVE",
-        "currentValue": 400.0,
-        "roomId":       "LIB-301"
-      }'
-```
-
-### 2.5 Add Reading (Side-Effect on Parent Sensor)
-
-POSTing a reading triggers an in-memory update of the parent sensor's
-`currentValue` — a single write-through side effect proving the
-"historical management" rubric row.
-
-```bash
-curl -i -X POST "$BASE/sensors/CO2-001/readings" \
-  -H "Content-Type: application/json" \
-  -d '{ "value": 437.2 }'
-```
-
-A follow-up `GET $BASE/sensors/CO2-001` will now show
-`"currentValue": 437.2`, proving the side effect landed in the
-`MockDatabase` singleton.
-
----
 
 ## 3. Conceptual Report — Theory Questions
 
