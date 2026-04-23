@@ -31,11 +31,13 @@ public class LoggingFilter implements ContainerRequestFilter, ContainerResponseF
     public void filter(ContainerRequestContext requestContext,
                        ContainerResponseContext responseContext) throws IOException {
 
-        long startTime = (Long) requestContext.getProperty(START_TIME_PROPERTY);
-        long elapsed   = System.currentTimeMillis() - startTime;
+        Object startProp = requestContext.getProperty(START_TIME_PROPERTY);
+        String elapsed = (startProp instanceof Long)
+                ? (System.currentTimeMillis() - (Long) startProp) + " ms"
+                : "n/a";
 
         LOGGER.info(String.format(
-                "[RESPONSE] %s %s → %d (%d ms)",
+                "[RESPONSE] %s %s → %d (%s)",
                 requestContext.getMethod(),
                 requestContext.getUriInfo().getRequestUri(),
                 responseContext.getStatus(),

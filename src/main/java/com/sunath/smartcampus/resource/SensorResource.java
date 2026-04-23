@@ -1,22 +1,33 @@
 package com.sunath.smartcampus.resource;
 
+import java.net.URI;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.UriInfo;
+
+import com.sunath.smartcampus.dao.MockDatabase;
 import com.sunath.smartcampus.dao.RoomDAO;
 import com.sunath.smartcampus.dao.SensorDAO;
+import com.sunath.smartcampus.exception.DuplicateResourceException;
 import com.sunath.smartcampus.exception.LinkedResourceNotFoundException;
 import com.sunath.smartcampus.exception.ResourceNotFoundException;
 import com.sunath.smartcampus.model.ErrorMessage;
 import com.sunath.smartcampus.model.Room;
 import com.sunath.smartcampus.model.Sensor;
-
-import javax.ws.rs.*;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.UriInfo;
-import java.net.URI;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 
 @Path("/sensors")
 @Produces(MediaType.APPLICATION_JSON)
@@ -59,6 +70,20 @@ public class SensorResource {
             return Response.status(Response.Status.BAD_REQUEST).entity(error).build();
         }
 
+        // Client must supply the id; use it exactly as given
+        String clientId = sensor.getId();
+        if (clientId == null || clientId.isBlank()) {
+            ErrorMessage error = new ErrorMessage(
+                    "Field 'id' is required.",
+                    400,
+                    "https://github.com/Sunx91/smart-campus-api"
+            );
+            return Response.status(Response.Status.BAD_REQUEST).entity(error).build();
+        }
+        if (sensorDAO.findById(clientId).isPresent()) {
+            throw new DuplicateResourceException("Sensor", clientId);
+        }
+
         // Reject unknown roomId with 422
         String roomId = sensor.getRoomId();
         Optional<Room> optRoom = roomDAO.findById(roomId);
@@ -66,8 +91,6 @@ public class SensorResource {
             throw new LinkedResourceNotFoundException("Room", roomId);
         }
 
-        // Generate ID
-        sensor.setId("sensor-" + UUID.randomUUID().toString().substring(0, 8));
         Sensor created = sensorDAO.create(sensor);
 
         // Keep parent room in sync
@@ -81,6 +104,29 @@ public class SensorResource {
                 .build();
 
         return Response.created(location).entity(created).build();
+    }
+
+    @DELETE
+    @Path("/{sensorId}")
+    public Response deleteSensor(@PathParam("sensorId") String sensorId) {
+        Sensor sensor = sensorDAO.findById(sensorId)
+                .orElseThrow(() -> new ResourceNotFoundException("Sensor", sensorId));
+
+        // Detach from parent room so sensorIds stays consistent
+        roomDAO.findById(sensor.getRoomId()).ifPresent(room -> {
+            room.getSensorIds().remove(sensorId);
+            roomDAO.update(room);
+        });
+
+        // Drop any buffered readings for this sensor
+        MockDatabase.getInstance().getReadingsForSensor(sensorId).clear();
+
+        sensorDAO.delete(sensorId);
+
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("message", "Sensor deleted successfully.");
+        body.put("id", sensorId);
+        return Response.ok(body).build();
     }
 
     // Sub-resource locator for /sensors/{sensorId}/readings

@@ -32,9 +32,6 @@ public class SensorReadingResource {
     private final SensorReadingDAO readingDAO;
     private final SensorDAO        sensorDAO = SensorDAO.getInstance();
 
-    @Context
-    private UriInfo uriInfo;
-
     public SensorReadingResource(String sensorId) {
         this.sensorId   = sensorId;
         this.readingDAO = new SensorReadingDAO(sensorId);
@@ -57,7 +54,7 @@ public class SensorReadingResource {
     }
 
     @POST
-    public Response addReading(SensorReading reading) {
+    public Response addReading(SensorReading reading, @Context UriInfo uriInfo) {
         if (reading == null) {
             ErrorMessage error = new ErrorMessage(
                     "Request body must not be empty.",

@@ -1,8 +1,9 @@
 package com.sunath.smartcampus.resource;
 
 import java.net.URI;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
 
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
@@ -17,6 +18,7 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriInfo;
 
 import com.sunath.smartcampus.dao.RoomDAO;
+import com.sunath.smartcampus.exception.DuplicateResourceException;
 import com.sunath.smartcampus.exception.ResourceNotFoundException;
 import com.sunath.smartcampus.exception.RoomNotEmptyException;
 import com.sunath.smartcampus.model.ErrorMessage;
@@ -57,8 +59,19 @@ public class RoomResource {
             return Response.status(Response.Status.BAD_REQUEST).entity(error).build();
         }
 
-        // Generate ID
-        room.setId("room-" + UUID.randomUUID().toString().substring(0, 8));
+        // Client must supply the id; use it exactly as given
+        String clientId = room.getId();
+        if (clientId == null || clientId.isBlank()) {
+            ErrorMessage error = new ErrorMessage(
+                    "Field 'id' is required.",
+                    400,
+                    "https://github.com/Sunx91/smart-campus-api"
+            );
+            return Response.status(Response.Status.BAD_REQUEST).entity(error).build();
+        }
+        if (roomDAO.findById(clientId).isPresent()) {
+            throw new DuplicateResourceException("Room", clientId);
+        }
         Room created = roomDAO.create(room);
 
         // Build Location header
@@ -81,6 +94,10 @@ public class RoomResource {
         }
 
         roomDAO.delete(roomId);
-        return Response.noContent().build();
+
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("message", "Room deleted successfully.");
+        body.put("id", roomId);
+        return Response.ok(body).build();
     }
 }
