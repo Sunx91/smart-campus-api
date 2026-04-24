@@ -21,6 +21,74 @@ The implementation uses JSON request and response bodies, meaningful HTTP status
 
 Base URL: `http://localhost:8080/smart-campus-api/api/v1`
 
+## Project Structure
+
+```text
+smart-campus-api/
+├── pom.xml
+├── nb-configuration.xml
+├── README.md
+├── Conceptual_Report_w2120070.pdf
+├── .gitignore
+└── src/
+    └── main/
+        ├── java/
+        │   └── com/
+        │       └── sunath/
+        │           └── smartcampus/
+        │               ├── api/
+        │               │   └── ApplicationConfig.java
+        │               ├── dao/
+        │               │   ├── GenericDAO.java
+        │               │   ├── MockDatabase.java
+        │               │   ├── RoomDAO.java
+        │               │   ├── SensorDAO.java
+        │               │   └── SensorReadingDAO.java
+        │               ├── exception/
+        │               │   ├── DuplicateResourceException.java
+        │               │   ├── DuplicateResourceExceptionMapper.java
+        │               │   ├── GlobalExceptionMapper.java
+        │               │   ├── LinkedResourceNotFoundException.java
+        │               │   ├── LinkedResourceNotFoundExceptionMapper.java
+        │               │   ├── ResourceNotFoundException.java
+        │               │   ├── ResourceNotFoundExceptionMapper.java
+        │               │   ├── RoomNotEmptyException.java
+        │               │   ├── RoomNotEmptyExceptionMapper.java
+        │               │   ├── SensorMaintenanceException.java
+        │               │   └── SensorMaintenanceExceptionMapper.java
+        │               ├── filter/
+        │               │   └── LoggingFilter.java
+        │               ├── model/
+        │               │   ├── BaseModel.java
+        │               │   ├── ErrorMessage.java
+        │               │   ├── Room.java
+        │               │   ├── Sensor.java
+        │               │   └── SensorReading.java
+        │               └── resource/
+        │                   ├── DebugResource.java
+        │                   ├── DiscoveryResource.java
+        │                   ├── RoomResource.java
+        │                   ├── SensorReadingResource.java
+        │                   └── SensorResource.java
+        └── webapp/
+            ├── index.html
+            ├── META-INF/
+            │   └── context.xml
+            └── WEB-INF/
+                ├── beans.xml
+                └── web.xml
+```
+
+Key packages:
+
+- `api/` — JAX-RS application configuration (`ApplicationConfig` registers the `/api/v1` base path and scanned providers).
+- `resource/` — JAX-RS resource classes that expose the HTTP endpoints (`DiscoveryResource`, `RoomResource`, `SensorResource`, `SensorReadingResource`, plus `DebugResource`).
+- `dao/` — data-access layer backed by the in-memory `MockDatabase` singleton (`RoomDAO`, `SensorDAO`, `SensorReadingDAO`, and the shared `GenericDAO` contract).
+- `model/` — POJOs serialised to and from JSON (`Room`, `Sensor`, `SensorReading`, `BaseModel`, `ErrorMessage`).
+- `exception/` — custom exception types and their matching JAX-RS `ExceptionMapper` providers, including the catch-all `GlobalExceptionMapper`.
+- `filter/` — cross-cutting JAX-RS providers (`LoggingFilter`).
+- `webapp/WEB-INF/` — deployment descriptors (`web.xml`, `beans.xml`) and the Tomcat context (`META-INF/context.xml`).
+
 ## Build and Run
 ### NetBeans
 1. Install JDK 21, Apache NetBeans, and Apache Tomcat 9.
