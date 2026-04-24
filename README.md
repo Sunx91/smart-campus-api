@@ -51,95 +51,69 @@ curl -i -X DELETE http://localhost:8080/smart-campus-api/api/v1/rooms/room-003
 
 ## 3. Conceptual Report — Theory Questions
 
-The following section satisfies the written component of the coursework
-brief. Answers are written in a professional academic register and mapped
-explicitly back to the five Parts of the specification.
+The following section answers the written component of the coursework
+brief. Each answer is mapped explicitly back to the implementation in this
+repository.
 
 ### 3.1 Part 1 — Service Architecture & Discovery
 
 #### Q1. Default lifecycle of a JAX-RS resource class and its impact on in-memory data
 
-By default, a JAX-RS resource annotated with `@Path` has a **per-request
-lifecycle**: the runtime (here, **Jersey 2.34** on top of the **HK2** injector)
-instantiates a **new instance of the resource class for every incoming HTTP
-request** and garbage-collects it when the response is written. This is
-intentional. It guarantees that any per-request state stored in instance
-fields (e.g., `@Context`-injected `UriInfo`, `HttpHeaders`, path parameters)
-cannot bleed between concurrent callers, which would be a correctness
-*and* security issue.
+The default lifecycle of a JAX-RS resource class is **per-request**: Jersey
+instantiates a fresh instance of the resource for every incoming HTTP
+request and discards it when the response is written. It is not a singleton
+by default. This is deliberate — per-request instances guarantee that any
+state stored in instance fields (path parameters, `@Context`-injected
+`UriInfo`, `HttpHeaders`, etc.) cannot bleed between concurrent callers.
 
-The alternative — annotating the resource with `@Singleton` (from
-`javax.inject.Singleton`) — instructs the container to construct **one
-instance that serves every request for the lifetime of the deployment**.
-This improves throughput marginally (fewer allocations) but forces the
-developer to guarantee that every mutable field is thread-safe, and
-prohibits the use of `@Context`-injected per-request objects on fields
-unless they are **proxies**.
+The immediate consequence is that **resource classes themselves cannot
+safely hold shared application data**. Any state that must outlive a single
+request has to live in a separate, long-lived component. In this project
+that component is `MockDatabase`, a singleton that exposes the `rooms`,
+`sensors`, and `readings` collections to every resource instance.
 
-For this project, **the default per-request lifecycle is the correct choice**
-because the resource classes themselves hold no mutable state — they delegate
-to DAO singletons. However, the `MockDatabase`, being the only truly stateful
-component, **is accessed by many request-scoped resource instances
-concurrently**, and therefore requires explicit concurrency controls:
+Because many request-scoped resource instances call into the same
+`MockDatabase` concurrently, the collections inside it must be chosen for
+thread-safety:
 
-- **`ConcurrentHashMap`** is used for `rooms`, `sensors`, and the outer
-  `readings` map. Its *bucket-level* locking is the canonical primitive for
-  high-throughput key-based state. Crucially, it guarantees the **absence of
-  `ConcurrentModificationException`** when a resource iterates the map at
-  the same time that another request is inserting into it.
-- **`CopyOnWriteArrayList`** backs every per-sensor `readings` list because
-  the read-to-write ratio is extremely skewed (many `GET /readings` calls,
-  occasional `POST /readings`), which is precisely the workload profile for
-  which copy-on-write is optimal.
-- **Compound operations** that involve a **read-modify-write** sequence — for
-  example, `POST /sensors` updating the parent `Room.sensorIds` — are
-  sensitive to **check-then-act** race conditions. A strict, production-grade
-  solution would wrap the two-step update in either
-  `ConcurrentHashMap.computeIfPresent(...)` or a higher-level lock. The
-  current implementation relies on the fact that two concurrent creations of
-  distinct sensors writing to the *same* room cannot both clobber each other
-  because `List.add(...)` on `ArrayList` at the `Room` object level is
-  non-atomic — a known, documented trade-off of the mock persistence layer.
+- `rooms`, `sensors`, and the outer `readings` map are `ConcurrentHashMap`.
+  This allows concurrent `put`, `get`, and iteration without throwing
+  `ConcurrentModificationException` and without locking the entire map.
+- Each per-sensor readings list is a `CopyOnWriteArrayList`, because reads
+  (`GET /readings`) heavily outnumber writes (`POST /readings`), and
+  copy-on-write gives lock-free reads.
 
-In short: **per-request resources + thread-safe storage singletons** is the
-textbook JAX-RS design. It isolates per-request concerns where they belong
-(the resource class) and centralises concurrency concerns where they belong
-(the data tier).
+If standard `HashMap` and `ArrayList` were used instead, two concurrent
+requests — for example, a `GET /sensors` iterating the map while a
+`POST /sensors` inserts into it — would risk corrupting the internal
+structure or throwing `ConcurrentModificationException`. The combination
+of *per-request resources* and *thread-safe singleton storage* is what
+keeps the data tier correct under load.
 
-#### Q2. Why **HATEOAS** is a hallmark of advanced RESTful design
+#### Q2. Why "Hypermedia" (HATEOAS) is considered a hallmark of advanced RESTful design
 
-**HATEOAS** — *Hypermedia as the Engine of Application State* — is the third
-and highest tier of the **Richardson Maturity Model** and is the defining
-property that separates a true REST API from a "JSON-over-HTTP RPC" façade.
-In a HATEOAS-compliant API, every response is *self-describing*: it includes
-**typed links** that advertise the valid next-step transitions, letting the
-client discover the API as it interacts with it.
+HATEOAS means every response includes links describing the valid next
+actions, so the client can discover the API by following them rather than
+by hard-coding URLs. `GET /api/v1` in this project demonstrates the
+pattern: the discovery document returns a `resources` map where every
+entry is an object with `href`, `rel`, and `method`, plus a `self` link
+pointing at the discovery document itself.
 
-Our `GET /api/v1` endpoint exemplifies this: instead of returning a bare list
-of URL strings, it returns a structured `resources` map where every entry is
-an object with `href`, `rel`, and `method`, including a `self` link that
-re-points at the discovery document.
+Compared with static documentation (e.g., a PDF), this provides:
 
-The benefits over static documentation are significant:
-
-- **Decoupled evolution.** Server-side URL layout can be restructured (for
-  example, versioning `/api/v1 → /api/v2`, or moving `/sensors` behind a
-  gateway) without breaking clients, because clients follow links, not hard-
-  coded strings. Static documentation is a snapshot; HATEOAS is live.
-- **Discoverability.** A new client developer can point Postman at the root
-  and *walk the graph* without opening a PDF. This aligns with Roy Fielding's
-  original dissertation argument that REST APIs should be consumable without
-  out-of-band knowledge.
-- **Uniform change signalling.** If a resource enters a state that forbids an
-  operation (e.g., a sensor in `MAINTENANCE`), the server can simply omit
-  the `addReading` link from its representation — the client does not need to
-  know the business rule; the server refuses to advertise the transition.
-- **Client intelligence, not client hard-coding.** Clients gain the ability
-  to present context-aware UIs based on the links they receive, rather than
-  duplicating the server's state machine in application code.
-
-Static documentation cannot offer any of these properties because it is,
-fundamentally, a document about yesterday's API.
+- **Decoupled evolution.** If the server moves `/rooms` to `/campus-rooms`
+  or versions the API from `/api/v1` to `/api/v2`, a client that reads
+  links from the discovery endpoint keeps working. A client coded against
+  a PDF does not — the PDF is a snapshot, the discovery endpoint is live.
+- **Discoverability.** A new client developer can point their tool at the
+  root URL and navigate the full surface of the API without consulting
+  external documentation.
+- **State-aware transitions.** The server can omit a link when an action
+  is not currently allowed — for example, hiding an `addReading` link for
+  a sensor in a `MAINTENANCE` state — so the client does not need to
+  replicate the server's business rules.
+- **Single source of truth.** Static documentation drifts the moment the
+  code changes; the links returned by the live service cannot.
 
 ---
 
@@ -147,71 +121,52 @@ fundamentally, a document about yesterday's API.
 
 #### Q1. Returning IDs only vs. full objects in a collection
 
-When `GET /rooms` returns the **full `Room` object** for every entry — our
-current implementation — the client receives everything needed to render a
-rooms dashboard with zero follow-up round-trips. This minimises total
-**latency** (especially on high-**RTT** mobile networks where a single
-extra request can cost 100–300 ms) and simplifies the client code: a single
-call, a single render.
+Returning only IDs (e.g. `["room-001", "room-002"]`) minimises payload size
+and network bandwidth. This is attractive on slow mobile connections, but
+it forces the client into an **N+1 request pattern**: one follow-up
+`GET /rooms/{id}` per entry it actually needs to display. That multiplies
+both server load and total perceived latency, and pushes complexity onto
+the client, which must orchestrate and assemble the detail calls itself.
 
-The cost is **bandwidth** and **payload size**: every row ships with every
-field, even if the UI only needs the `id` and `name`. For a campus with
-thousands of rooms this becomes measurable, and irrelevant fields
-(`sensorIds`, `capacity`, future descriptors) are transmitted whether the
-consumer cares about them or not.
+Returning the **full `Room` object** — the approach used here — inverts
+the trade-off. The payload is larger because every field ships on every
+row, even when the UI only needs `id` and `name`. In exchange, the client
+has all the data needed to render a dashboard in a single round-trip,
+with zero follow-up calls and far simpler client code.
 
-The **ID-only alternative** (e.g., `["room-001", "room-002", …]`) inverts the
-trade-off. The collection payload shrinks dramatically, which matters when
-the use case is *"give me the set of ids so I can fetch ten specific ones
-in detail"*. But it forces an **N+1 request pattern**: the client must issue
-one follow-up `GET /rooms/{id}` per entry it wishes to render, multiplying
-both server load and perceived user latency.
+For a small-to-medium campus system this is the correct choice. The rooms
+collection is small, the extra bytes are trivial, and the reduction in
+total HTTP calls outweighs the bandwidth cost. On a much larger corpus the
+standard refinement is a summary representation — a subset of fields plus
+a `self` link so the client can fetch details on demand — which is the
+HATEOAS middle ground.
 
-The **industry-standard middle ground** — and a natural next step for this
-project — is a **HATEOAS-augmented summary representation**: each collection
-entry carries the minimal rendering fields plus a `links.self` URI, letting
-the client materialise full detail on demand. **GraphQL-style field selection
-via `?fields=…` query parameters** is the same idea at a different layer.
+#### Q2. Is `DELETE` idempotent here? A detailed justification
 
-Our current *"return full objects"* choice is defensible for a small, seed-
-sized corpus: we spend trivially more bandwidth in exchange for a much
-simpler client and a lower request-per-second load on the server.
+**Yes — `DELETE /rooms/{id}` is idempotent in this implementation.**
+Idempotency is a property of **server state**, not of the response code:
+after N identical requests, the observable state must be indistinguishable
+from the state after one.
 
-#### Q2. Is `DELETE` idempotent here? A detailed justification.
+The two-call scenario:
 
-**Yes — `DELETE /rooms/{id}` is idempotent in this implementation, in the
-strict HTTP-semantics sense.** *Idempotent* does **not** mean *"returns the
-same response code on every call"*; it means *"the observable **server state**
-after `N` identical requests is indistinguishable from the state after one"*
-(RFC 9110 §9.2.2).
+- The **first** `DELETE /rooms/DEL-101` finds the room in `MockDatabase`,
+  removes it, and returns `204 No Content`.
+- The **second** identical request no longer finds the room. `findById`
+  returns `Optional.empty`, which triggers `ResourceNotFoundException`,
+  and the client receives `404 Not Found`.
 
-Trace the two-call scenario:
+The response codes differ (204 vs. 404), but the server state is identical
+in both cases — the room is gone. That is precisely the definition of
+idempotency. If the implementation also decremented a counter or logged a
+billable row per call, that property would be broken; it does not.
 
-| Call | Precondition | Action | Post-state | HTTP response |
-|---|---|---|---|---|
-| 1st `DELETE /rooms/DEL-101` | Room exists, `sensorIds` empty | `MockDatabase.rooms.remove("DEL-101")` | Room absent | **204 No Content** |
-| 2nd `DELETE /rooms/DEL-101` | Room already absent | `findById` returns `Optional.empty`, triggering `ResourceNotFoundException` | Room still absent | **404 Not Found** |
-
-After *both* calls, the server holds exactly the same state: `DEL-101` does
-not exist. That is the definition of idempotent. The fact that the HTTP
-status code differs between calls is orthogonal — idempotency is a property
-of *state*, not of *response symmetry*.
-
-**Counter-examples that would break idempotency** include a `DELETE` that
-also decrements a global counter, or a `DELETE` that cascades into logging
-a billable audit row per call. Neither happens here; the `MockDatabase`
-`remove` is the sole state mutation.
-
-The **business-rule branch** further reinforces the guarantee: when a room
-has linked sensors, `DELETE` throws `RoomNotEmptyException` → **409
-Conflict** and performs **zero state change**. Repeating the call produces
-the same 409 indefinitely until the linked sensors are removed. This is
-called *safe failure* and is itself a form of idempotency.
-
-> Worth noting: `DELETE` is idempotent but **not safe** — it mutates state
-> (unlike `GET` which is both safe and idempotent). That is the correct
-> semantic boundary and is why this project returns **204 No Content** on
-> the successful first call, not `200 OK` with a body.
+The business-rule branch reinforces this. If the room has linked sensors,
+`DELETE` throws `RoomNotEmptyException` and returns `409 Conflict` with
+**zero state change**. Repeating the call produces the same 409 until the
+sensors are removed. The server never mutates state in response to a
+`DELETE` it refuses to honour, which keeps the idempotency guarantee
+intact on both branches.
 
 ---
 
@@ -220,239 +175,211 @@ called *safe failure* and is itself a form of idempotency.
 #### Q1. Consequences of a `Content-Type` mismatch with `@Consumes(MediaType.APPLICATION_JSON)`
 
 Every `POST` endpoint in this project is annotated
-`@Consumes(MediaType.APPLICATION_JSON)`. This declaration is not decorative:
-it participates directly in JAX-RS's **content-negotiation algorithm** (JAX-RS
-2.1 spec §3.7).
+`@Consumes(MediaType.APPLICATION_JSON)`. This is not cosmetic — it
+participates directly in Jersey's request dispatch.
 
-When a client sends a request with a `Content-Type` that does **not** match
-any of the declared `@Consumes` types — for example `text/plain` or
-`application/xml` against our JSON-only endpoint — the runtime takes the
-following deterministic path:
+When a client sends a payload with a `Content-Type` that does not match
+any declared `@Consumes` value (for example `text/plain` or
+`application/xml` against a JSON-only endpoint), the runtime:
 
-1. Jersey inspects the request's `Content-Type` header.
-2. It searches the resource method table for a method at the same path
-   whose `@Consumes` covers the incoming media type.
-3. If no match exists, **no resource method is invoked at all** — the
-   request is short-circuited by the framework before any user code runs.
-4. The client receives **`HTTP 415 Unsupported Media Type`**.
+1. Reads the request's `Content-Type` header.
+2. Looks for a resource method at the same path whose `@Consumes` covers
+   that media type.
+3. Finding none, **rejects the request before any user code runs**.
+4. Returns `HTTP 415 Unsupported Media Type` to the client.
 
-This is architecturally valuable for three reasons:
+The resource method is never invoked, and the body is never handed to a
+`MessageBodyReader`. Three properties follow:
 
-- **Early rejection.** Malformed or wrong-format payloads never reach the
-  `MessageBodyReader` stack, so there is zero risk of a partially-parsed
-  object being persisted.
-- **Correct error semantics.** The client receives the precise status code
-  RFC 9110 §15.5.16 reserves for this condition, which is diagnostically
-  unambiguous — no guessing from a 400.
+- **Early rejection.** Malformed or wrong-format payloads cannot reach the
+  parsing or persistence logic. There is no risk of a partially-parsed
+  object being written into `MockDatabase`.
+- **Correct diagnostics.** The client receives `415`, the precise status
+  code for this condition, rather than an ambiguous `400`.
 - **Security.** Attackers cannot smuggle non-JSON payloads into JSON-only
-  endpoints in an attempt to exploit buggy downstream parsers, because the
-  request is rejected before any parser is selected.
+  endpoints to probe buggy downstream parsers, because the request is
+  rejected before any parser is selected.
 
-A symmetric mechanism governs the response direction: `@Produces` is matched
-against the client's `Accept` header, returning **`406 Not Acceptable`** if
-no representation is available. Together, `@Consumes` and `@Produces` form
-JAX-RS's declarative type system for the HTTP boundary.
+The same mechanism in reverse governs responses: `@Produces` is matched
+against the client's `Accept` header and returns `406 Not Acceptable` if
+no representation is available.
 
 #### Q2. `@QueryParam` filtering vs. path-based filtering (`/sensors/type/CO2`)
 
-Both approaches are technically workable, but **`@QueryParam` is the
-semantically correct design for searching a collection**. The reasoning is
-grounded in the REST resource model:
+Both designs are technically workable, but `@QueryParam` is the correct
+choice for filtering a collection.
 
-- **`/sensors` is a collection resource.** The canonical URL identifies *the
-  set of all sensors*. A query string is a **filter applied to that set** —
-  it does not identify a new resource, it narrows the view of the existing
-  one. Bookmarking `/sensors?type=CO2` and `/sensors?type=Temperature`
-  correctly represents *two different views of the same collection*.
-- **`/sensors/type/CO2` invents a fictitious sub-resource.** "The type
-  segment" is not a thing in the domain — there is no individual
-  `Type: CO2` resource to `GET`, `PUT`, or `DELETE`. The URL path structure
-  should mirror the ownership graph of the domain, not its indexable
-  attributes.
-- **Composability.** Query strings support multiple orthogonal filters and
-  pagination without combinatorial explosion of path variants:
-  `/sensors?type=CO2&status=ACTIVE&page=2`. A path-based design would
-  require `/sensors/type/CO2/status/ACTIVE/page/2`, which is fragile,
-  order-sensitive, and verbose.
-- **Caching & analytics.** HTTP caches, reverse proxies, and CDNs treat the
-  query string as part of the cache key by default. The *same* underlying
-  resource with different query filters can be cached independently, which
-  is exactly what you want. Path-based filtering forces the cache layer to
-  treat each filter combination as a distinct resource.
-- **Server-side ergonomics.** A single `@GET` method with optional
-  `@QueryParam` bindings handles every filter permutation; the equivalent
-  path-based design needs either a regex-heavy `@Path` or multiple methods.
+- **Path identifies, query selects.** `/sensors` is the collection
+  resource — the set of all sensors. A query string narrows the view of
+  that set; it does not introduce a new resource. `/sensors?type=CO2` and
+  `/sensors?type=Temperature` are two *views* of the same collection.
+- **`/sensors/type/CO2` invents a sub-resource that does not exist in the
+  domain.** There is no individual "type" resource that can be `GET`,
+  `PUT`, or `DELETE`d. The URL path should mirror the ownership graph of
+  the domain, not its indexable attributes.
+- **Composability.** Query strings combine cleanly:
+  `/sensors?type=CO2&status=ACTIVE`. The equivalent path-based design —
+  `/sensors/type/CO2/status/ACTIVE` — is order-sensitive, rigid, and
+  explodes combinatorially as filters are added.
+- **Server-side simplicity.** A single `@GET` method on `SensorResource`
+  with an optional `@QueryParam("type")` handles every filter permutation,
+  including no filter at all. A path-based design needs either multiple
+  methods or a regex-heavy `@Path`.
 
-This is why every mature REST API (GitHub, Stripe, AWS) reserves the path
-for *identity* and the query string for *selection* — our
-`GET /sensors?type=CO2` implementation is squarely in that tradition.
+This is why `GET /sensors?type=CO2` in this project uses a query parameter
+and the path stays canonical.
 
 ---
 
 ### 3.4 Part 4 — Sub-Resources
 
-#### Q1. Architectural benefits of the **Sub-Resource Locator** pattern
+#### Q1. Architectural benefits of the Sub-Resource Locator pattern
 
-A **sub-resource locator** is a method on a parent resource, annotated with
-`@Path` but **no HTTP-method annotation**, whose return value is an
-*instance* (not a `Response`) that JAX-RS then dispatches the rest of the
-request against. In this project:
+A sub-resource locator is a method on a parent resource annotated with
+`@Path` but no HTTP-method annotation, whose return value is a sub-resource
+instance that Jersey dispatches the rest of the request against. In this
+project, `SensorResource#getReadingResource(String sensorId)` is annotated
+`@Path("/{sensorId}/readings")` and returns a `SensorReadingResource`; all
+requests to `/sensors/{id}/readings...` are then dispatched onto that
+returned object.
 
-```text
-SensorResource#getReadingResource(String sensorId)
-    → returns SensorReadingResource
-```
+The benefits over bundling every nested path into one large `SensorResource`:
 
-The pattern delivers several concrete engineering wins over the alternative
-of piling every URL under a single controller:
+- **Separation of concerns.** `SensorResource` handles sensor metadata;
+  `SensorReadingResource` handles reading history. Each class has a single
+  reason to change, which keeps both small enough to read and maintain.
+- **Contextual parameter capture.** The `sensorId` is captured **once**,
+  in the locator, and stored as a final field inside
+  `SensorReadingResource`. Handlers inside the sub-resource do not need to
+  re-declare `@PathParam("sensorId")` on every method, which removes a
+  common source of copy-paste bugs.
+- **Gate-keeping at the boundary.** The locator is the natural place to
+  reject requests against an unknown parent. This implementation throws
+  `ResourceNotFoundException("Sensor", sensorId)` in the locator itself,
+  so every nested URL produces a uniform 404 for unknown sensors with one
+  line of code.
+- **Horizontal extensibility.** Adding an `/alerts` subtree tomorrow would
+  be a new locator method and a new class, with no edits to the readings
+  logic. A "god controller" would need to absorb every new subtree into
+  one growing file.
+- **Testability.** `SensorReadingResource` can be unit-tested by
+  instantiating it directly with a `sensorId`, without standing up a
+  Jersey test container or mocking path-parameter injection.
 
-- **Separation of concerns, enforced by the URL.** The class responsible for
-  `/sensors/{id}/readings/*` is physically separate from the class
-  responsible for `/sensors/*`. This aligns with the **Single
-  Responsibility Principle**: `SensorReadingResource` knows only how to
-  manage readings, and its lifecycle is entirely scoped to a specific sensor.
-- **Contextual parameter capture.** The `sensorId` path parameter is
-  captured **once** by the locator and stored in the sub-resource as a
-  final field — subsequent method handlers on `SensorReadingResource` do
-  not re-declare `@PathParam("sensorId")` on every method. This eliminates
-  a well-known source of copy-paste bugs in large controllers.
-- **Business-rule gating at the locator boundary.** The locator itself is
-  the natural place to short-circuit requests against an invalid parent:
-  our implementation throws `ResourceNotFoundException("Sensor", sensorId)`
-  before Jersey even dispatches to the sub-resource, giving every nested
-  URL a uniform 404 JSON for unknown sensors with one line of code.
-- **Pluggable sub-graphs.** Adding a parallel `/alerts` subtree tomorrow
-  would be as simple as adding `@Path("/{sensorId}/alerts") public
-  SensorAlertResource getAlerts(…)` — zero impact on the existing readings
-  code. Monolithic controllers tend to grow into 1000-line god-classes;
-  sub-resource locators scale horizontally by composition.
-- **Testability.** `SensorReadingResource` can be unit-tested in isolation
-  by instantiating it with a stub `sensorId` — no need to stand up a Jersey
-  test container, no need to mock path-parameter injection.
-
-The pattern is the JAX-RS equivalent of **hierarchical controllers** in
-Spring MVC's `@RequestMapping` trees, but declarative — the URL hierarchy
-and the class hierarchy remain aligned by the framework itself, not by
-developer discipline.
+The pattern keeps the URL hierarchy and the class hierarchy aligned, which
+is what keeps the codebase navigable as the API grows.
 
 ---
 
 ### 3.5 Part 5 — Error Handling & Observability
 
-#### Q1. Why **HTTP 422** is more semantically accurate than **404** for payload-reference failures
+#### Q1. Why HTTP 422 is more semantically accurate than 404 for missing references in a valid JSON payload
 
-Both 404 and 422 communicate *"the thing you asked for is not available"*,
-but they differ on **where the problem lives**:
+Both codes communicate *"this cannot be processed"*, but they locate the
+problem in different places:
 
-- **`404 Not Found`** signals that the **target URI is not a resource**. It
-  is a property of the *HTTP request line* (method + URL). The client is
-  expected to reinterpret this as *"this address does not identify
-  anything"*.
-- **`422 Unprocessable Entity`** (RFC 4918 §11.2, reused by RFC 9110)
-  signals that the **request line is fine, the `Content-Type` is fine, the
-  body is syntactically valid, but the server cannot process it because
-  of a *semantic* error in the body**. The client is expected to reinterpret
-  this as *"fix your payload and retry — don't change the URL"*.
+- **`404 Not Found`** says the **URL does not identify a resource**. The
+  client should reinterpret the address.
+- **`422 Unprocessable Entity`** says the **URL is fine, the
+  `Content-Type` is fine, the JSON parses — but the payload is
+  semantically invalid**. The client should fix the body and retry.
 
-In our `POST /sensors` case with an unknown `roomId`:
+For `POST /sensors` with an unknown `roomId`:
 
-- The endpoint `/sensors` **does exist**.
-- The `Content-Type: application/json` is accepted.
-- The JSON is well-formed and deserialises into a valid `Sensor` POJO.
+- The `/sensors` endpoint exists.
+- `Content-Type: application/json` is accepted.
+- The JSON is well-formed and deserialises into a valid `Sensor` object.
 
-The only failure is the **referential-integrity check** — the `roomId`
-field references a row that is not in the database. That is a semantic
-problem with the *payload*, not with the *URL*, which is exactly the
-condition 422 was designed for. Returning 404 here would be diagnostically
-misleading: the client's developer would spend time inspecting the URL,
-the routing table, and the context path before realising the actual error
-lives in one field of the body.
+The only failure is the referential integrity check inside `MockDatabase`
+— the `roomId` field does not correspond to any existing room. That is a
+defect in the **payload**, not in the **URL**, which is exactly what 422
+describes. Returning 404 here would be diagnostically misleading: the
+client's developer would waste time inspecting the URL, the routing table,
+and the context path before realising the actual error lives in one field
+of the body. The `ReferentialIntegrityException` → 422 mapping in
+`GlobalExceptionMapper` keeps that error localisation honest.
 
-This is why mature REST APIs (Stripe, GitHub, GitLab) uniformly return 422
-for validation-style failures and reserve 404 for missing-route failures.
-The distinction is worth the seven-line mapper it costs us to implement.
+#### Q2. Cybersecurity risks of exposing Java stack traces to external API consumers
 
-#### Q2. Cybersecurity risks of leaking Java stack traces to external consumers
+Returning a raw Java stack trace in an HTTP response body is a form of
+**information disclosure**, and each line of the trace hands an attacker
+something useful:
 
-Exposing a raw Java stack trace in an HTTP response body — the default
-behaviour of many frameworks in "development mode" — is a widely-exploited
-**information-disclosure vulnerability**. It is listed under **OWASP Top
-Ten A05:2021 — *Security Misconfiguration***. Each frame and each log line
-leaks a piece of intelligence that an attacker can weaponise:
+- **Exception class names** (`NullPointerException`,
+  `NumberFormatException`) reveal which inputs are unvalidated and
+  crash-prone, which enables targeted fuzzing.
+- **Fully-qualified class names** (`com.sunath.smartcampus.dao.RoomDAO`)
+  reveal the internal package structure and naming conventions of the
+  application — valuable reconnaissance for chaining further attacks.
+- **File paths and line numbers** (`RoomDAO.java:37`) reveal the
+  filesystem layout of the deployment, which hints at where to aim a
+  later path-traversal or local-file-inclusion probe.
+- **Library and framework versions** (e.g., a frame pointing at
+  `org.glassfish.jersey.server...`) let an attacker look up known
+  vulnerabilities for that exact Jersey, Jackson, or Tomcat version and
+  craft targeted exploits.
+- **SQL fragments or ORM messages** leak schema and column names — direct
+  fuel for SQL injection, even in projects that do not currently use a
+  real database.
+- **Error text that distinguishes "user not found" from "bad password"**
+  enables user enumeration and credential stuffing.
+- **Internal hostnames, IPs, or cluster identifiers** inside an exception
+  message reveal deployment topology and support lateral-movement attacks.
 
-| Artefact leaked | What an attacker learns |
-|---|---|
-| Exception class name (`NullPointerException`, `NumberFormatException`) | Which input field is unvalidated and crash-prone. Enables targeted fuzzing. |
-| Fully-qualified class names (`com.sunath.smartcampus.dao.RoomDAO`) | The internal package structure and naming conventions of the application — invaluable for reconnaissance when chaining other vulnerabilities. |
-| File paths inside stack frames (`RoomDAO.java:37`) | The filesystem layout of the deployment, which hints at where to aim a later **path-traversal** or **LFI** probe. |
-| Library / framework versions (`at org.glassfish.jersey.server.…`) | Jersey, Jackson, Tomcat version. The attacker can now look up known CVEs for those exact versions and craft targeted exploits. |
-| SQL fragments or ORM messages | Schema names, column names, and even partial query templates — direct fuel for **SQL injection**. |
-| Authentication failure messages distinguishing "user not found" from "bad password" | User-enumeration primitives that enable credential stuffing. |
-| Internal hostnames, IPs, or cluster node identifiers in an exception message | The topology of the deployment, supporting lateral-movement attacks. |
+`GlobalExceptionMapper<Throwable>` in this project mitigates all of the
+above by splitting the communication channel in two:
 
-Our `GlobalExceptionMapper<Throwable>` mitigates this by splitting the
-communication channel in two:
-
-- The **client** receives only the generic sentence
-  *"An unexpected internal error occurred. Please contact the administrator
-  if the problem persists."*, an `errorCode: 500`, and a
+- The **client** receives only a generic sentence
+  (*"An unexpected internal error occurred. Please contact the
+  administrator if the problem persists."*), a numeric `errorCode`, and a
   `documentation` URL. No exception class, no package name, no frame.
 - The **server log** receives the full `Throwable` via
-  `Logger.log(Level.SEVERE, "Unhandled exception …", ex)`, including the
-  complete stack trace, for operator debugging.
+  `Logger.log(Level.SEVERE, ...)`, including the complete stack trace,
+  for operator debugging.
 
-This is the textbook **defence-in-depth** split: full diagnostic fidelity
-for the people who own the server, zero diagnostic leakage to the people
-who don't. It is the posture Rubric 5.2 ("Leak-Proof API") is explicitly
-testing for.
+Full diagnostic fidelity for the people who own the server, nothing
+diagnostic for anyone else.
 
-#### Q3. Why **JAX-RS filters** beat manual `Logger.info()` calls in every method
+#### Q3. Why JAX-RS filters beat manual `Logger.info()` calls in every method
 
-Dropping a `LOGGER.info("entering getSensorById")` at the top of every
-resource method is the naive approach to request logging. It is also the
-wrong approach, for well-established software-engineering reasons:
+Placing `LOGGER.info(...)` at the top of every resource method is the
+naïve approach to request logging, and it fails on several counts
+compared with a `LoggingFilter` (a `ContainerRequestFilter` +
+`ContainerResponseFilter`):
 
-- **Cross-cutting concerns deserve cross-cutting abstractions.** Logging,
-  authentication, CORS, rate-limiting, tracing, metrics — all orthogonal
-  to business logic. Duplicating log statements across every method is a
-  textbook case of **scattering and tangling** — the exact problem AOP
-  and filter chains were designed to solve. A `ContainerRequestFilter` +
-  `ContainerResponseFilter` is the Java EE-native AOP mechanism.
-- **Uniformity and correctness by construction.** With a single
-  `LoggingFilter`, it is *impossible* to forget to log a request, *impossible*
-  to log the wrong URI, and *impossible* for two developers to format the
-  same log line differently. In contrast, a codebase with 30 manual
-  `LOGGER.info()` calls has 30 opportunities for drift, typos, and omissions.
-- **Access to the full request/response envelope.** Our filter receives a
-  `ContainerRequestContext` containing method, URI, headers, and the request
-  body (via `entityStream`), plus a `ContainerResponseContext` with the
-  resolved status code, response headers, and entity. A manual logger in a
-  resource method sees only what the developer explicitly passes it — and
-  crucially has **no access to the final status code**, because at the top
-  of the method we don't know yet what the response will be.
-- **Correlated request/response timing.** Our filter stores
-  `System.currentTimeMillis()` as a request property on entry and subtracts
-  it on exit, producing a per-request latency figure in a single line — the
-  foundation for later observability (percentiles, histograms, p99 alerts).
-  This is impossible with method-top logging.
-- **Ordered pipeline composition.** Multiple `@Provider` filters can be
-  chained and ordered by `@Priority`. Swap logging for a structured JSON
-  log emitter, layer an auth filter in front, add a metrics filter behind —
-  all declaratively, with zero edits to any resource method.
-- **Non-invasive testability.** The business-logic methods remain pure
-  (input → output). They can be unit-tested without mocking a logger, and
-  the logging concern can be toggled, silenced, or rerouted in tests
-  without touching resource code.
+- **Cross-cutting concerns deserve a cross-cutting implementation.**
+  Logging, CORS, timing, auth, metrics — none of these belong in a
+  resource method body. A single filter expresses the concern once;
+  scattered `LOGGER.info` calls duplicate it across every method.
+- **Uniformity by construction.** The filter guarantees that every
+  request and every response is logged in the same format. Manual logging
+  has as many opportunities for drift as there are methods — different
+  field orders, forgotten calls, copy-paste typos.
+- **Access to the full envelope.** The filter receives a
+  `ContainerRequestContext` (method, URI, headers, body) on entry and a
+  `ContainerResponseContext` (status code, response headers, entity) on
+  exit. A logger at the top of a resource method cannot see the resolved
+  status code, because the response has not been built yet.
+- **Correlated timing.** This project's filter stores
+  `System.currentTimeMillis()` as a request property on entry and
+  subtracts it on exit, producing a per-request latency figure in one
+  line. That pattern is impossible with method-top logging.
+- **Maintenance.** Changing the log format — adding a timestamp, a
+  request ID, switching to JSON — is a one-line edit in the filter. The
+  equivalent change with manual logging requires editing every resource
+  class in the project.
+- **Clean business logic.** Resource methods stay focused on their actual
+  job. They can be unit-tested without mocking a logger, and the logging
+  behaviour can be silenced or rerouted in tests without touching any
+  resource class.
 
-In short, `LoggingFilter` embodies the **Open/Closed Principle** applied at
-the HTTP boundary: new cross-cutting behaviour is added by *extension*
-(register another `@Provider`), never by *modification* of the resources
-themselves. That is the architectural property that turns a toy API into
-a maintainable one.
+Adding a new cross-cutting concern in the future — a metrics emitter, a
+request-ID injector, a rate limiter — is a matter of registering another
+`@Provider`, not of editing any existing class.
 
 ---
 
-_This document is the official conceptual report for the Smart Campus API
+_This document is the conceptual report for the Smart Campus API
 coursework submission. It is co-located with the production source in the
 same repository so that any future change to the code forces an equivalent
 update to its justification._
