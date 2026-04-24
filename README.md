@@ -103,8 +103,7 @@ Compared with static documentation (e.g., a PDF), this provides:
 
 - **Decoupled evolution.** If the server moves `/rooms` to `/campus-rooms`
   or versions the API from `/api/v1` to `/api/v2`, a client that reads
-  links from the discovery endpoint keeps working. A client coded against
-  a PDF does not — the PDF is a snapshot, the discovery endpoint is live.
+  links from the discovery endpoint keeps working. 
 - **Discoverability.** A new client developer can point their tool at the
   root URL and navigate the full surface of the API without consulting
   external documentation.
